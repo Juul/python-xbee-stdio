@@ -11,7 +11,7 @@ This class defines data and methods common to all XBee modules.
 This class should be subclassed in order to provide
 series-specific functionality.
 """
-import struct, threading, time
+import struct, threading, time, select, sys
 from xbee.frame import APIFrame
 from xbee.python2to3 import byteToInt, intToByte
 
@@ -81,7 +81,10 @@ class XBeeBase(threading.Thread):
         result to the serial port
         """
         frame = APIFrame(data, self._escaped).output()
-        self.serial.write(frame)
+        if self.serial:
+            self.serial.write(frame)
+        else:
+            sys.stdout.write(frame)
         
     def run(self):
         """
@@ -114,11 +117,19 @@ class XBeeBase(threading.Thread):
                 if self._callback and not self._thread_continue:
                     raise ThreadQuitException
 
-                if self.serial.inWaiting() == 0:
-                    time.sleep(.01)
-                    continue
+                if self.serial:
+                    if self.serial.inWaiting() == 0:
+                        time.sleep(.01)
+                        continue
+                else:
+                    if not select.select([sys.stdin,],[],[],0.0)[0]:
+                        time.sleep(.01)
+                        continue
                 
-                byte = self.serial.read()
+                if self.serial:
+                    byte = self.serial.read()
+                else:
+                    byte = sys.stdin.read(1)
 
                 if byte != APIFrame.START_BYTE:
                     continue
@@ -128,7 +139,10 @@ class XBeeBase(threading.Thread):
                     frame.fill(byte)
                     
                 while(frame.remaining_bytes() > 0):
-                    byte = self.serial.read()
+                    if self.serial:
+                        byte = self.serial.read()
+                    else:
+                        byte = sys.stdin.read(1)
                     
                     if len(byte) == 1:
                         frame.fill(byte)
